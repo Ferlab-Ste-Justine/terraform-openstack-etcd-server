@@ -118,7 +118,7 @@ The etcd resources we provision are more decoupled across several modules than m
 This choice is for three reasons:
 - Etcd is a distributed data store. It is stateful so during update, you can't simply provision a fresh etcd cluster to replace the old one and switch dns pointers without propagating the state.
 - When we update nodes in the etcd cluster, we should preferably do it one node at a time which will allow us to both maximize uptime and keep our state without having to save/restore from backups (given the limited amount of **volume** space we have in our Openstack).
-- To translate the more **hands on** update flow described in the etcd documentation into a gitops flow (if the updates can't initially be simplified into a one step process, at least they can be made auditable in the git history and follow a more quality controlled git-flow with the code... no butter fingers): https://etcd.io/docs/v3.4/op-guide/runtime-configuration/
+- To translate the more **hands on** update flow described in the etcd documentation into a gitops flow (if the updates can't initially be simplified into a one step process, at least they can be made auditable in the git history and follow a more quality controlled git-flow with the code... fewer butter fingers): https://etcd.io/docs/v3.4/op-guide/runtime-configuration/
 
 # Current Limitations
 
