@@ -91,7 +91,7 @@ variable "certificate_early_renewal_period" {
   description = "The etcd cluster's certificate's early renewal period in hours"
   type        = number
   #Defaults to 99 years
-  default     = 99*365*24
+  default     = 365*24
 }
 
 variable "ca" {
