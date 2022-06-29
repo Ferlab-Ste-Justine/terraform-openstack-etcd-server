@@ -52,4 +52,10 @@ resource "openstack_compute_instance_v2" "etcd_member" {
   network {
     port = var.network_port.id
   }
+
+  lifecycle {
+    ignore_changes = [
+      user_data,
+    ]
+  }
 }

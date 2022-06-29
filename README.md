@@ -135,3 +135,17 @@ Bootstraping a fresh cluster from a backup when recovering from a disaster needs
 In our case, given that our backups will be in ceph, we'll need to be able to support passing connection information to an s3 object (containing the backup) to restore from when a machine is created (as an optional argument).
 
 This is something that will be implemented and validated once we have actual etcd backups to test against.
+
+# Gotcha
+
+To safeguard against potential outages and loss of data, changes to the server's user data will be ignored without reprovisioning.
+
+To reprovision a new instance with changes to the following parameters, the module should be explicitly deleted and re-created:
+- etcd_version
+- etcd_space_quota
+- etcd_auto_compaction_mode
+- etcd_auto_compaction_retention
+- initial_cluster_token
+- initial_cluster
+- ca
+- bootstrap_authentication
