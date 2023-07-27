@@ -44,6 +44,9 @@ This module takes the following variables as input:
   - **makestep**: An object containing remedial instructions if the clock of the vm is significantly out of sync at startup. It is an object containing two properties, **threshold** and **limit** (see: https://chrony.tuxfamily.org/doc/4.2/chrony.conf.html#makestep)
 - **fluentbit**: Optional fluent-bit configuration to securely route logs to a fluend/fluent-bit node using the forward plugin. Alternatively, configuration can be 100% dynamic by specifying the parameters of an etcd store or git repo to fetch the configuration from. It has the following keys:
   - **enabled**: If set the false (the default), fluent-bit will not be installed.
+  - **metrics**: Configuration for metrics fluentbit exposes.
+    - **enabled**: Whether to enable the metrics or not
+    - **port**: Port to expose the metrics on
   - **etcd_tag**: Tag to assign to logs coming from etcd
   - **node_exporter_tag** Tag to assign to logs coming from the prometheus node exporter
   - **forward**: Configuration for the forward plugin that will talk to the external fluend/fluent-bit node. It has the following keys:
