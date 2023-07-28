@@ -6,7 +6,7 @@ terraform {
     }
     cloudinit = {
       source  = "hashicorp/cloudinit"
-      version = "= 2.0.0, < 3.0.0"
+      version = ">= 2.0.0, < 3.0.0"
     }
   }
   required_version = ">= 1.2.0"
