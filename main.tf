@@ -11,7 +11,7 @@ locals {
 }
 
 module "etcd_configs" {
-  source = "git::https://github.com/Ferlab-Ste-Justine/terraform-cloudinit-templates.git//etcd?ref=v0.12.0"
+  source = "git::https://github.com/Ferlab-Ste-Justine/terraform-cloudinit-templates.git//etcd?ref=fix/fix-etcd-cert-auth-bootstrap"
   install_dependencies = var.install_dependencies
   etcd_host = {
     name                     = var.name
