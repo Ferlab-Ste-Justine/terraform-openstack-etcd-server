@@ -1,18 +1,15 @@
 variable "name" {
-  description = "Base name to give to the vm. The namespace, if present, will be suffixed"
+  description = "Name to give to the vm"
   type        = string
   default     = "etcd"
 }
 
-variable "namespace" {
-  description = "Namespace to create the resources under"
-  type        = string
-  default     = ""
-}
-
-variable "image_id" {
-  description = "ID of the image the etcd instance will run on"
-  type        = string
+variable "image_source" {
+  description = "Source of the vm's image"
+  type = object({
+    image_id = string
+    volume_id = string
+  })
 }
 
 variable "flavor_id" {
@@ -25,83 +22,195 @@ variable "network_port" {
   type        = any
 }
 
+variable "server_group" {
+  description = "Server group to assign to the node. Should be of type openstack_compute_servergroup_v2"
+  type        = any
+}
+
 variable "keypair_name" {
   description = "Name of the keypair that will be used to ssh to the etcd instance"
   type        = string
 }
 
-variable "etcd_version" {
-  description = "Version of etcd to use in the format: vX.Y.Z"
-  type        = string
-  default     = "v3.4.15"
+variable "etcd" {
+  description = "Etcd parameters"
+  type        = object({
+    auto_compaction_mode       = string,
+    auto_compaction_retention  = string,
+    space_quota                = number,
+    grpc_gateway_enabled       = bool,
+    client_cert_auth           = bool,
+  })
+  default = {
+    auto_compaction_mode      = "revision"
+    auto_compaction_retention = "1000"
+    space_quota               = 8*1024*1024*1024
+    grpc_gateway_enabled      = false
+    client_cert_auth          = true
+  }
 }
 
-variable "etcd_auto_compaction_mode" {
-  description = "The policy of etcd's auto compaction. Can be either 'periodic' to delete revision older than x or 'revision' to keep at most y revisions"
-  type        = string
-  default     = "revision"
+variable "authentication_bootstrap" {
+  description = "Authentication settings for the node bootstrapping it. Note that root_password is only used if etcd.client_cert_auth setting is set to false"
+  type        = object({
+    bootstrap     = bool,
+    root_password = string,
+  })
+  default = {
+    bootstrap     = false
+    root_password = ""
+  }
 }
 
-variable "etcd_auto_compaction_retention" {
-  #see for expected format: https://etcd.io/docs/v3.4/op-guide/maintenance/
-  description = "Boundary specifying what revisions should be compacted. Can be a time value for 'periodic' or a number in string format for 'revision'"
-  type        = string
-  default     = "1000"
+variable "cluster" {
+  description = "Etcd cluster parameters"
+  type        = object({
+    is_initializing = bool,
+    initial_token   = string,
+    initial_members = list(object({
+      ip   = string,
+      name = string,
+    })),
+  })
 }
 
-
-variable "etcd_space_quota" {
-  description = "Maximum disk space that etcd can take before the cluster goes into alarm mode"
-  type        = number
-  #Defaults to 8GB
-  default     = 8*1024*1024*1024
+variable "tls" {
+  description = "Etcd tls parameters"
+  type = object({
+    ca_cert     = string
+    server_cert = string
+    server_key  = string
+  })
 }
 
-variable "is_initial_cluster" {
-  description = "Whether or not this etcd vm is generated as part of a new cluster"
-  type        = bool
-  default     = true
+variable "chrony" {
+  description = "Chrony configuration for ntp. If enabled, chrony is installed and configured, else the default image ntp settings are kept"
+  type        = object({
+    enabled = bool,
+    //https://chrony.tuxfamily.org/doc/4.2/chrony.conf.html#server
+    servers = list(object({
+      url = string,
+      options = list(string)
+    })),
+    //https://chrony.tuxfamily.org/doc/4.2/chrony.conf.html#pool
+    pools = list(object({
+      url = string,
+      options = list(string)
+    })),
+    //https://chrony.tuxfamily.org/doc/4.2/chrony.conf.html#makestep
+    makestep = object({
+      threshold = number
+      limit = number
+    })
+  })
+  default = {
+    enabled = false
+    servers = []
+    pools = []
+    makestep = {
+      threshold = 0
+      limit = 0
+    }
+  }
 }
 
-variable "initial_cluster_token" {
-  description = "Initial token given to uniquely identify the new cluster"
-  type        = string
-  default     = "etcd-cluster"
+variable "fluentbit" {
+  description = "Fluent-bit configuration"
+  type = object({
+    enabled = bool
+    etcd_tag = string
+    node_exporter_tag = string
+    metrics = object({
+      enabled = bool
+      port    = number
+    })
+    forward = object({
+      domain = string
+      port = number
+      hostname = string
+      shared_key = string
+      ca_cert = string
+    })
+  })
+  default = {
+    enabled = false
+    etcd_tag = ""
+    node_exporter_tag = ""
+    metrics = {
+      enabled = false
+      port = 0
+    }
+    forward = {
+      domain = ""
+      port = 0
+      hostname = ""
+      shared_key = ""
+      ca_cert = ""
+    }
+  }
 }
 
-variable "initial_cluster" {
-  description = "List indicating the initial cluster. Each entry in the list should be a map with the following two keys: 'ip' and 'name'. The name should be the same as the 'name' variable passed to each node."
-  type        = list(map(string))
+variable "fluentbit_dynamic_config" {
+  description = "Parameters for fluent-bit dynamic config if it is enabled"
+  type = object({
+    enabled = bool
+    source  = string
+    etcd    = object({
+      key_prefix     = string
+      endpoints      = list(string)
+      ca_certificate = string
+      client         = object({
+        certificate = string
+        key         = string
+        username    = string
+        password    = string
+      })
+    })
+    git     = object({
+      repo             = string
+      ref              = string
+      path             = string
+      trusted_gpg_keys = list(string)
+      auth             = object({
+        client_ssh_key         = string
+        server_ssh_fingerprint = string
+      })
+    })
+  })
+  default = {
+    enabled = false
+    source = "etcd"
+    etcd = {
+      key_prefix     = ""
+      endpoints      = []
+      ca_certificate = ""
+      client         = {
+        certificate = ""
+        key         = ""
+        username    = ""
+        password    = ""
+      }
+    }
+    git  = {
+      repo             = ""
+      ref              = ""
+      path             = ""
+      trusted_gpg_keys = []
+      auth             = {
+        client_ssh_key         = ""
+        server_ssh_fingerprint = ""
+      }
+    }
+  }
+
+  validation {
+    condition     = contains(["etcd", "git"], var.fluentbit_dynamic_config.source)
+    error_message = "fluentbit_dynamic_config.source must be 'etcd' or 'git'."
+  }
 }
 
-variable "organization" {
-  description = "The etcd cluster's certificates' organization"
-  type        = string
-  default     = "Ferlab"
-}
-
-variable "certificate_validity_period" {
-  description = "The etcd cluster's certificate's validity period in hours"
-  type        = number
-  #Defaults to 100 years
-  default     = 100*365*24
-}
-
-variable "certificate_early_renewal_period" {
-  description = "The etcd cluster's certificate's early renewal period in hours"
-  type        = number
-  #Defaults to 99 years
-  default     = 365*24
-}
-
-variable "ca" {
-  description = "The ca that will sign the member's certificate. Should have the following keys: key, key_algorithm, certificate"
-  type        = any
-  sensitive   = true
-}
-
-variable "bootstrap_authentication" {
-  description = "Whether the node should bootstrap authentication for the cluster: creating an admin root user and enabling authentication"
-  type        = bool
-  default     = false
+variable "install_dependencies" {
+  description = "Whether to install all dependencies in cloud-init"
+  type = bool
+  default = true
 }

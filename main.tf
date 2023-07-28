@@ -1,56 +1,215 @@
 locals {
-  self_name = var.namespace != "" ? "${var.name}-${var.namespace}" : var.name
-  processed_initial_cluster = [
-    for elem in var.initial_cluster: {
-      name = var.namespace != "" ? "${elem["name"]}-${var.namespace}" : elem["name"]
-      ip = elem["ip"]
-    }
-  ]
+  fluentbit_updater_etcd = var.fluentbit.enabled && var.fluentbit_dynamic_config.enabled && var.fluentbit_dynamic_config.source == "etcd"
+  fluentbit_updater_git = var.fluentbit.enabled && var.fluentbit_dynamic_config.enabled && var.fluentbit_dynamic_config.source == "git"
+  block_devices = var.image_source.volume_id != "" ? [{
+    uuid                  = var.image_source.volume_id
+    source_type           = "volume"
+    boot_index            = 0
+    destination_type      = "volume"
+    delete_on_termination = false
+  }] : []
 }
 
+module "etcd_configs" {
+  source = "git::https://github.com/Ferlab-Ste-Justine/terraform-cloudinit-templates.git//etcd?ref=v0.13.1"
+  install_dependencies = var.install_dependencies
+  etcd_host = {
+    name                     = var.name
+    ip                       = var.network_port.all_fixed_ips.0
+    bootstrap_authentication = var.authentication_bootstrap.bootstrap
+  }
+  etcd_cluster = {
+    auto_compaction_mode       = var.etcd.auto_compaction_mode
+    auto_compaction_retention  = var.etcd.auto_compaction_retention
+    space_quota                = var.etcd.space_quota
+    grpc_gateway_enabled       = var.etcd.grpc_gateway_enabled
+    client_cert_auth           = var.etcd.client_cert_auth
+    root_password              = var.authentication_bootstrap.root_password
+  }
+  etcd_initial_cluster = {
+    is_initializing = var.cluster.is_initializing
+    token           = var.cluster.initial_token
+    members         = var.cluster.initial_members
+  }
+  tls = var.tls
+}
 
-data "template_cloudinit_config" "etcd_config" {
+module "prometheus_node_exporter_configs" {
+  source = "git::https://github.com/Ferlab-Ste-Justine/terraform-cloudinit-templates.git//prometheus-node-exporter?ref=v0.13.1"
+  install_dependencies = var.install_dependencies
+}
+
+module "chrony_configs" {
+  source = "git::https://github.com/Ferlab-Ste-Justine/terraform-cloudinit-templates.git//chrony?ref=v0.13.1"
+  install_dependencies = var.install_dependencies
+  chrony = {
+    servers  = var.chrony.servers
+    pools    = var.chrony.pools
+    makestep = var.chrony.makestep
+  }
+}
+
+module "fluentbit_updater_etcd_configs" {
+  source = "git::https://github.com/Ferlab-Ste-Justine/terraform-cloudinit-templates.git//configurations-auto-updater?ref=v0.13.1"
+  install_dependencies = var.install_dependencies
+  filesystem = {
+    path = "/etc/fluent-bit-customization/dynamic-config"
+    files_permission = "700"
+    directories_permission = "700"
+  }
+  etcd = {
+    key_prefix = var.fluentbit_dynamic_config.etcd.key_prefix
+    endpoints = var.fluentbit_dynamic_config.etcd.endpoints
+    connection_timeout = "60s"
+    request_timeout = "60s"
+    retry_interval = "4s"
+    retries = 15
+    auth = {
+      ca_certificate = var.fluentbit_dynamic_config.etcd.ca_certificate
+      client_certificate = var.fluentbit_dynamic_config.etcd.client.certificate
+      client_key = var.fluentbit_dynamic_config.etcd.client.key
+      username = var.fluentbit_dynamic_config.etcd.client.username
+      password = var.fluentbit_dynamic_config.etcd.client.password
+    }
+  }
+  notification_command = {
+    command = ["/usr/local/bin/reload-fluent-bit-configs"]
+    retries = 30
+  }
+  naming = {
+    binary = "fluent-bit-config-updater"
+    service = "fluent-bit-config-updater"
+  }
+  user = "fluentbit"
+}
+
+module "fluentbit_updater_git_configs" {
+  source = "git::https://github.com/Ferlab-Ste-Justine/terraform-cloudinit-templates.git//gitsync?ref=v0.13.1"
+  install_dependencies = var.install_dependencies
+  filesystem = {
+    path = "/etc/fluent-bit-customization/dynamic-config"
+    files_permission = "700"
+    directories_permission = "700"
+  }
+  git = var.fluentbit_dynamic_config.git
+  notification_command = {
+    command = ["/usr/local/bin/reload-fluent-bit-configs"]
+    retries = 30
+  }
+  naming = {
+    binary = "fluent-bit-config-updater"
+    service = "fluent-bit-config-updater"
+  }
+  user = "fluentbit"
+}
+
+module "fluentbit_configs" {
+  source = "git::https://github.com/Ferlab-Ste-Justine/terraform-cloudinit-templates.git//fluent-bit?ref=v0.13.1"
+  install_dependencies = var.install_dependencies
+  fluentbit = {
+    metrics = var.fluentbit.metrics
+    systemd_services = [
+      {
+        tag     = var.fluentbit.etcd_tag
+        service = "etcd.service"
+      },
+      {
+        tag     = var.fluentbit.node_exporter_tag
+        service = "node-exporter.service"
+      }
+    ]
+    forward = var.fluentbit.forward
+  }
+  dynamic_config = {
+    enabled = var.fluentbit_dynamic_config.enabled
+    entrypoint_path = "/etc/fluent-bit-customization/dynamic-config/index.conf"
+  }
+}
+
+locals {
+  cloudinit_templates = concat([
+      {
+        filename     = "base.cfg"
+        content_type = "text/cloud-config"
+        content = templatefile(
+          "${path.module}/files/user_data.yaml.tpl", 
+          {
+            hostname = var.name
+            install_dependencies = var.install_dependencies
+          }
+        )
+      },
+      {
+        filename     = "node_exporter.cfg"
+        content_type = "text/cloud-config"
+        content      = module.prometheus_node_exporter_configs.configuration
+      },
+      {
+        filename     = "etcd.cfg"
+        content_type = "text/cloud-config"
+        content      = module.etcd_configs.configuration
+      }
+    ],
+    var.chrony.enabled ? [{
+      filename     = "chrony.cfg"
+      content_type = "text/cloud-config"
+      content      = module.chrony_configs.configuration
+    }] : [],
+    local.fluentbit_updater_etcd ? [{
+      filename     = "fluent_bit_updater.cfg"
+      content_type = "text/cloud-config"
+      content      = module.fluentbit_updater_etcd_configs.configuration
+    }] : [],
+    local.fluentbit_updater_git ? [{
+      filename     = "fluent_bit_updater.cfg"
+      content_type = "text/cloud-config"
+      content      = module.fluentbit_updater_git_configs.configuration
+    }] : [],
+    var.fluentbit.enabled ? [{
+      filename     = "fluent_bit.cfg"
+      content_type = "text/cloud-config"
+      content      = module.fluentbit_configs.configuration
+    }] : []
+  )
+}
+
+data "cloudinit_config" "user_data" {
   gzip = true
   base64_encode = true
-  part {
-    content_type = "text/cloud-config"
-    content = templatefile(
-      "${path.module}/files/cloud_config.yaml.tpl", 
-      {
-        etcd_version = var.etcd_version
-        etcd_space_quota = var.etcd_space_quota
-        etcd_auto_compaction_mode = var.etcd_auto_compaction_mode
-        etcd_auto_compaction_retention = var.etcd_auto_compaction_retention
-        etcd_initial_cluster_token = var.initial_cluster_token
-        self_ip = var.network_port.all_fixed_ips.0
-        etcd_initial_cluster_state = var.is_initial_cluster ? "new" : "existing"
-        etcd_name = local.self_name
-        etcd_cluster = join(
-          ",",
-          [
-            for elem in local.processed_initial_cluster: "${elem["name"]}=https://${elem["ip"]}:2380"
-          ]
-        )
-        ca_cert = var.ca.certificate
-        cert = tls_locally_signed_cert.certificate.cert_pem
-        key = tls_private_key.key.private_key_pem
-        bootstrap_authentication = var.bootstrap_authentication
-        root_key = module.root_certificate.key
-        root_cert = module.root_certificate.certificate
-      }
-    )
+  dynamic "part" {
+    for_each = local.cloudinit_templates
+    content {
+      filename     = part.value["filename"]
+      content_type = part.value["content_type"]
+      content      = part.value["content"]
+    }
   }
 }
 
 resource "openstack_compute_instance_v2" "etcd_member" {
-  name      = local.self_name
-  image_id  = var.image_id
+  name      = var.name
+  image_id  = var.image_source.image_id != "" ? var.image_source.image_id : null
   flavor_id = var.flavor_id
   key_pair  = var.keypair_name
-  user_data = data.template_cloudinit_config.etcd_config.rendered
+  user_data = data.cloudinit_config.user_data.rendered
 
   network {
     port = var.network_port.id
+  }
+
+  dynamic "block_device" {
+    for_each = local.block_devices
+    content {
+      uuid                  = block_device.value["uuid"]
+      source_type           = block_device.value["source_type"]
+      boot_index            = block_device.value["boot_index"]
+      destination_type      = block_device.value["destination_type"]
+      delete_on_termination = block_device.value["delete_on_termination"]
+    }
+  }
+
+  scheduler_hints {
+    group = var.server_group.id
   }
 
   lifecycle {
