@@ -1,13 +1,22 @@
 locals {
   fluentbit_updater_etcd = var.fluentbit.enabled && var.fluentbit_dynamic_config.enabled && var.fluentbit_dynamic_config.source == "etcd"
   fluentbit_updater_git = var.fluentbit.enabled && var.fluentbit_dynamic_config.enabled && var.fluentbit_dynamic_config.source == "git"
-  block_devices = var.image_source.volume_id != "" ? [{
-    uuid                  = var.image_source.volume_id
-    source_type           = "volume"
-    boot_index            = 0
-    destination_type      = "volume"
-    delete_on_termination = false
-  }] : []
+  block_devices = concat(
+    var.image_source.volume_id != "" ? [{
+      uuid                  = var.image_source.volume_id
+      source_type           = "volume"
+      boot_index            = 0
+      destination_type      = "volume"
+      delete_on_termination = false
+    }] : [],
+    var.data_volume_id != "" ? [{
+      uuid                  = var.data_volume_id
+      source_type           = "volume"
+      boot_index            = -1
+      destination_type      = "volume"
+      delete_on_termination = false
+    }] : []
+  )
 }
 
 module "etcd_configs" {
@@ -126,6 +135,17 @@ module "fluentbit_configs" {
   }
 }
 
+module "data_volume_configs" {
+  source = "git::https://github.com/Ferlab-Ste-Justine/terraform-cloudinit-templates.git//data-volumes?ref=v0.13.1"
+  volumes = [{
+    label         = "etcd_data"
+    device        = "vdb"
+    filesystem    = "ext4"
+    mount_path    = "/var/lib/etcd"
+    mount_options = "defaults"
+  }]
+}
+
 locals {
   cloudinit_templates = concat([
       {
@@ -169,7 +189,12 @@ locals {
       filename     = "fluent_bit.cfg"
       content_type = "text/cloud-config"
       content      = module.fluentbit_configs.configuration
-    }] : []
+    }] : [],
+    var.data_volume_id != "" ? [{
+      filename     = "data_volume.cfg"
+      content_type = "text/cloud-config"
+      content      = module.data_volume_configs.configuration
+    }]: []
   )
 }
 

@@ -12,6 +12,12 @@ variable "image_source" {
   })
 }
 
+variable "data_volume_id" {
+  description = "Id for an optional separate disk volume to attach to the vm on etcd's data path"
+  type        = string
+  default     = ""
+}
+
 variable "flavor_id" {
   description = "ID of the flavor the etcd instance will run on"
   type        = string
