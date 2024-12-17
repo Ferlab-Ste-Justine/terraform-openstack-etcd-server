@@ -112,14 +112,6 @@ This module takes the following variables as input:
 
 # Current Limitations
 
-## Restoring From Backup
-
-Bootstraping a fresh cluster from a backup when recovering from a disaster needs to be done when a cluster is initially created with etcd: https://etcd.io/docs/v3.4/op-guide/recovery/
-
-In our case, given that our backups will be in ceph, we'll need to be able to support passing connection information to an s3 object (containing the backup) to restore from when a machine is created (as an optional argument).
-
-This is something that will be implemented and validated once we have actual etcd backups to test against.
-
 # Gotcha
 
 To safeguard against potential outages and loss of data, changes to the server's user data will be ignored without reprovisioning.
