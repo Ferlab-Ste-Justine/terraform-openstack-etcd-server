@@ -2,9 +2,15 @@
 
 This is a terraform module that provisions a single member of an opensearch cluster.
 
-Given a certificate authority as argument (can be an internal-only self-signed authority), it will generate its own secret key and certificate to communicate with clients and peers in the cluster.
+One of the servers should initially be set to bootstrap authentication in the cluster: it will generates a **root** (passwordless if certificate authentication is chosen) user and enable authentication. 
 
-One of the servers can also be set to bootstrap authentication in the cluster: it will generates a passwordless **root** user and enable authentication. You are expected to use your certificate authority to generate a client user certificate for **root** to further configure your etcd cluster. See: https://github.com/Ferlab-Ste-Justine/terraform-tls-client-certificate
+It supports either password or certificate authentication for the client. If if certificate authentication is chosen, you are expected to use your certificate authority to generate a client user certificate for **root** to further configure your etcd cluster.
+
+See: https://github.com/Ferlab-Ste-Justine/openstack-etcd-client-certificate
+
+And all communications (between the nodes and also with the client) are setup to happen in tls.
+
+The nodes can also be setup to restore from a snapshot in s3, encrypted or in plaintext. The expected format of the backup is dictated by the following project (and it is the tool that is used to perform a restore): https://github.com/Ferlab-Ste-Justine/etcd-backup
 
 # Usage
 
@@ -38,6 +44,18 @@ This module takes the following variables as input:
   - **ca_cert**: CA certificate that will be used to validate the authenticity of peers and clients.
   - **server_cert**: Server certificate that will be used to authentify the server to its peers and to clients. In addition to being signed for all the ips and domains the server will use, it should be signed with the **127.0.0.1** loopback address in order to initialize authentication from one of the servers. Its allowed uses should be both server authentication and client authentication.
   - **server_key**: Server private key that complements its certificate for authentication.
+- **restore**: Parameters to restore etcd's data directory from a snapshot in s3 when the vm is first created.
+  - **enabled**: If set to true, the **etcd-backup** (https://github.com/Ferlab-Ste-Justine/etcd-backup) utility will be setup in the vm and will run on creation to restore from a snapshot.
+  - **s3**: Parameters to manage the connection to the S3 store
+    - **endpoint**: Endpoint of the S3 store
+    - **bucket** Bucket where the snapshot is located in the s3 store.
+    - **object_prefix**: Object prefix that is used as part of the snapshot's name (see the documentation of the **etcd-backup** utility for details)
+    - **region**: Region to use in the s3 store
+    - **access_key**: Identification key to use when connecting to the s3 store
+    - **secret_key**: Authentication key to use when connecting to the s3 store
+    - **ca_cert**: Optional CA cert to use to authentify the s3 store's server certificate
+  - **encryption_key**: Master encryption key that should be used to decrypt the encryption key in S3 if the snapshot is encrypted.
+  - **backup_timestamp**: Timestamp of the snapshot to use (see the documentation of the **etcd-backup** utility for details). If empty, the latest snapshot will be used
 - **chrony**: Optional chrony configuration for when you need a more fine-grained ntp setup on your vm. It is an object with the following fields:
   - **enabled**: If set the false (the default), chrony will not be installed and the vm ntp settings will be left to default.
   - **servers**: List of ntp servers to sync from with each entry containing two properties, **url** and **options** (see: https://chrony.tuxfamily.org/doc/4.2/chrony.conf.html#server)
@@ -73,6 +91,7 @@ This module takes the following variables as input:
       - **key**: Client private tls key to authentify with. To be used for certificate authentication.
       - **username**: Client's username. To be used for username/password authentication.
       - **password**: Client's password. To be used for username/password authentication.
+    - **vault_agent_secret_path**: Optional vault secret path for an optional vault agent to renew the etcd client credentials. The secret in vault is expected to have the **certificate** and **key** keys if certificate authentication is used or the **username** and **password** keys if password authentication is used.
   - **git**: Parameters to fetch fluent-bit configurations dynamically from an git repo. It has the following keys:
     - **repo**: Url of the git repository. It should have the ssh format.
     - **ref**: Git reference (usually branch) to checkout in the repository
@@ -81,6 +100,14 @@ This module takes the following variables as input:
     - **auth**: Authentication to the git server. It should have the following keys:
       - **client_ssh_key** Private client ssh key to authentication to the server.
       - **server_ssh_fingerprint**: Public ssh fingerprint of the server that will be used to authentify it.
+- **vault_agent**: Parameters for the optional vault agent that will be used to manage the dynamic secrets in the vm.
+  - **enabled**: If set to true, a vault agent service will be setup and will run in the vm.
+  - **auth_method**: Auth method the vault agent will use to authenticate with vault. Currently, only approle is supported.
+    - **config**: Configuration parameters for the auth method.
+      - **role_id**: Id of the app role to us.
+      - **secret_id**: Authentication secret to use the app role.
+  - **vault_address**: Endpoint to use to talk to vault.
+  - **vault_ca_cert**: CA certificate to use to validate vault's certificate.
 - **install_dependencies**: Whether cloud-init should install external dependencies (should be set to false if you already provide an image with the external dependencies built-in).
 
 # Current Limitations

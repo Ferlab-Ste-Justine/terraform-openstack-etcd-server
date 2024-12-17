@@ -19,8 +19,24 @@ locals {
   )
 }
 
+module "etcd_restore_configs" {
+  source = "git::https://github.com/Ferlab-Ste-Justine/terraform-cloudinit-templates.git//etcd-restore?ref=v0.27.2"
+  install_dependencies = var.install_dependencies
+  restore = {
+    s3 = var.restore.s3
+    encryption_key = var.restore.encryption_key
+    backup_timestamp = var.restore.backup_timestamp
+  }
+  etcd_initial_cluster = {
+    name    = var.name
+    ip      = var.network_port.all_fixed_ips.0
+    token   = var.cluster.initial_token
+    members = var.cluster.initial_members
+  }
+}
+
 module "etcd_configs" {
-  source = "git::https://github.com/Ferlab-Ste-Justine/terraform-cloudinit-templates.git//etcd?ref=v0.13.1"
+  source = "git::https://github.com/Ferlab-Ste-Justine/terraform-cloudinit-templates.git//etcd?ref=v0.27.2"
   install_dependencies = var.install_dependencies
   etcd_host = {
     name                     = var.name
@@ -44,12 +60,12 @@ module "etcd_configs" {
 }
 
 module "prometheus_node_exporter_configs" {
-  source = "git::https://github.com/Ferlab-Ste-Justine/terraform-cloudinit-templates.git//prometheus-node-exporter?ref=v0.13.1"
+  source = "git::https://github.com/Ferlab-Ste-Justine/terraform-cloudinit-templates.git//prometheus-node-exporter?ref=v0.27.2"
   install_dependencies = var.install_dependencies
 }
 
 module "chrony_configs" {
-  source = "git::https://github.com/Ferlab-Ste-Justine/terraform-cloudinit-templates.git//chrony?ref=v0.13.1"
+  source = "git::https://github.com/Ferlab-Ste-Justine/terraform-cloudinit-templates.git//chrony?ref=v0.27.2"
   install_dependencies = var.install_dependencies
   chrony = {
     servers  = var.chrony.servers
@@ -59,7 +75,7 @@ module "chrony_configs" {
 }
 
 module "fluentbit_updater_etcd_configs" {
-  source = "git::https://github.com/Ferlab-Ste-Justine/terraform-cloudinit-templates.git//configurations-auto-updater?ref=v0.13.1"
+  source = "git::https://github.com/Ferlab-Ste-Justine/terraform-cloudinit-templates.git//configurations-auto-updater?ref=v0.27.2"
   install_dependencies = var.install_dependencies
   filesystem = {
     path = "/etc/fluent-bit-customization/dynamic-config"
@@ -90,10 +106,16 @@ module "fluentbit_updater_etcd_configs" {
     service = "fluent-bit-config-updater"
   }
   user = "fluentbit"
+  vault_agent = {
+    etcd_auth = {
+        enabled = var.fluentbit_dynamic_config.etcd.vault_agent_secret_path != ""
+        secret_path = var.fluentbit_dynamic_config.etcd.vault_agent_secret_path
+    }
+  }
 }
 
 module "fluentbit_updater_git_configs" {
-  source = "git::https://github.com/Ferlab-Ste-Justine/terraform-cloudinit-templates.git//gitsync?ref=v0.13.1"
+  source = "git::https://github.com/Ferlab-Ste-Justine/terraform-cloudinit-templates.git//gitsync?ref=v0.27.2"
   install_dependencies = var.install_dependencies
   filesystem = {
     path = "/etc/fluent-bit-customization/dynamic-config"
@@ -113,7 +135,7 @@ module "fluentbit_updater_git_configs" {
 }
 
 module "fluentbit_configs" {
-  source = "git::https://github.com/Ferlab-Ste-Justine/terraform-cloudinit-templates.git//fluent-bit?ref=v0.13.1"
+  source = "git::https://github.com/Ferlab-Ste-Justine/terraform-cloudinit-templates.git//fluent-bit?ref=v0.27.2"
   install_dependencies = var.install_dependencies
   fluentbit = {
     metrics = var.fluentbit.metrics
@@ -135,8 +157,20 @@ module "fluentbit_configs" {
   }
 }
 
+
+module "vault_agent_configs" {
+  source = "git::https://github.com/Ferlab-Ste-Justine/terraform-cloudinit-templates.git//vault-agent?ref=v0.27.2"
+  install_dependencies = var.install_dependencies
+  vault_agent = {
+    auth_method = var.vault_agent.auth_method
+    vault_address = var.vault_agent.vault_address
+    vault_ca_cert = var.vault_agent.vault_ca_cert
+    extra_config = ""
+  }
+}
+
 module "data_volume_configs" {
-  source = "git::https://github.com/Ferlab-Ste-Justine/terraform-cloudinit-templates.git//data-volumes?ref=v0.13.1"
+  source = "git::https://github.com/Ferlab-Ste-Justine/terraform-cloudinit-templates.git//data-volumes?ref=v0.27.2"
   volumes = [{
     label         = "etcd_data"
     device        = "vdb"
@@ -147,7 +181,13 @@ module "data_volume_configs" {
 }
 
 locals {
-  cloudinit_templates = concat([
+  cloudinit_templates = concat(
+    var.restore.enabled ? [{
+      filename     = "etcd_restore.cfg"
+      content_type = "text/cloud-config"
+      content      = module.etcd_restore_configs.configuration
+    }] : [],
+    [
       {
         filename     = "base.cfg"
         content_type = "text/cloud-config"
@@ -189,6 +229,11 @@ locals {
       filename     = "fluent_bit.cfg"
       content_type = "text/cloud-config"
       content      = module.fluentbit_configs.configuration
+    }] : [],
+    var.vault_agent.enabled ? [{
+      filename     = "vault_agent.cfg"
+      content_type = "text/cloud-config"
+      content      = module.vault_agent_configs.configuration
     }] : [],
     var.data_volume_id != "" ? [{
       filename     = "data_volume.cfg"
