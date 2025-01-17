@@ -1,12 +1,12 @@
 # About
 
-This is a terraform module that provisions a single member of an opensearch cluster.
+This is a terraform module that provisions a single member of an etcd cluster.
 
-One of the servers should initially be set to bootstrap authentication in the cluster: it will generates a **root** (passwordless if certificate authentication is chosen) user and enable authentication. 
+One of the servers should initially be set to bootstrap authentication in the cluster: it will generates a **root** user (passwordless if certificate authentication is chosen) and enable authentication.
 
-It supports either password or certificate authentication for the client. If if certificate authentication is chosen, you are expected to use your certificate authority to generate a client user certificate for **root** to further configure your etcd cluster.
+It supports either password or certificate authentication for the client. If certificate authentication is chosen, you are expected to use your certificate authority to generate a client user certificate for **root** to further configure your etcd cluster.
 
-See: https://github.com/Ferlab-Ste-Justine/openstack-etcd-client-certificate
+See: https://github.com/Ferlab-Ste-Justine/terraform-tls-client-certificate
 
 And all communications (between the nodes and also with the client) are setup to happen in tls.
 
